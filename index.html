@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股票数据看板</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            font-size: 28px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .add-stock {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        .add-stock input {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 8px;
+            background: #16213e;
+            color: #fff;
+            width: 200px;
+        }
+        .add-stock button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            cursor: pointer;
+        }
+        .stock-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .stock-card {
+            background: #16213e;
+            border-radius: 16px;
+            padding: 20px;
+            position: relative;
+        }
+        .stock-card .delete {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #e74c3c;
+            border: none;
+            color: #fff;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .stock-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .stock-code {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+        .stock-price {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .stock-change {
+            font-size: 18px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: inline-block;
+        }
+        .up {
+            color: #e74c3c;
+            background: rgba(231, 76, 60, 0.2);
+        }
+        .down {
+            color: #2ecc71;
+            background: rgba(46, 204, 113, 0.2);
+        }
+        .stock-info {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            color: #888;
+        }
+        .indices {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        .index-item {
+            background: #16213e;
+            padding: 15px 30px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .index-name {
+            color: #888;
+            font-size: 14px;
+        }
+        .index-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 股票数据看板</h1>
+    </div>
+    
+    <div class="indices" id="indices">
+        <div class="index-item">
+            <div class="index-name">上证指数</div>
+            <div class="index-value" id="sh-value">加载中...</div>
+        </div>
+        <div class="index-item">
+            <div class="index-name">创业板指</div>
+            <div class="index-value" id="cy-value">加载中...</div>
+        </div>
+    </div>
+    
+    <div class="add-stock">
+        <input type="text" id="stockInput" placeholder="输入股票代码或名称">
+        <button onclick="addStock()">添加股票</button>
+    </div>
+    
+    <div class="stock-grid" id="stockGrid">
+        <div class="loading">添加股票开始使用...</div>
+    </div>
+
+    <script>
+        // 默认股票列表
+        let stocks = JSON.parse(localStorage.getItem('myStocks')) || ['603138', '002273'];
+        
+        const stockCodeMap = {
+            '603138': { name: '海量数据', market: 'sh' },
+            '002273': { name: '水晶光电', market: 'sz' }
+        };
+
+        function getStockName(code) {
+            return stockCodeMap[code]?.name || code;
+        }
+
+        function getMarket(code) {
+            return stockCodeMap[code]?.market || (code.startsWith('6') ? 'sh' : 'sz');
+        }
+
+        async function fetchStockData(code) {
+            const market = getMarket(code);
+            const symbol = market + code;
+            
+            try {
+                const response = await fetch(`https://hq.sinajs.cn/list=${symbol}`, {
+                    headers: {
+                        'Referer': 'https://finance.sina.com.cn'
+                    }
+                });
+                const text = await response.text();
+                const data = text.split('=')[1].split(',');
+                
+                if (data.length < 10) return null;
+                
+                return {
+                    code: code,
+                    name: data[0].replace(/"/g, ''),
+                    open: parseFloat(data[1]),
+                    price: parseFloat(data[2]),
+                    high: parseFloat(data[3]),
+                    low: parseFloat(data[4]),
+                    volume: parseFloat(data[5]) / 10000,
+                    amount: parseFloat(data[6]) / 100000000,
+                    change: parseFloat(data[2]) - parseFloat(data[1]),
+                    changePct: ((parseFloat(data[2]) - parseFloat(data[1])) / parseFloat(data[1]) * 100).toFixed(2)
+                };
+            } catch (e) {
+                console.error(e);
+                return null;
+            }
+        }
+
+        async function fetchIndexData(symbol) {
+            try {
+                const response = await fetch(`https://hq.sinajs.cn/list=${symbol}`, {
+                    headers: { 'Referer': 'https://finance.sina.com.cn' }
+                });
+                const text = await response.text();
+                const data = text.split('=')[1].split(',');
+                
+                return {
+                    name: data[0].replace(/"/g, ''),
+                    price: parseFloat(data[1]).toFixed(2),
+                    change: parseFloat(data[2]).toFixed(2),
+                    changePct: parseFloat(data[3]).toFixed(2)
+                };
+            } catch (e) {
+                return { name: '', price: '--', change: '--', changePct: '--' };
+            }
+        }
+
+        async function updateIndices() {
+            const sh = await fetchIndexData('sh000001');
+            const cy = await fetchIndexData('sz399006');
+            
+            document.getElementById('sh-value').innerHTML = 
+                `${sh.price}<span class="${sh.change >= 0 ? 'up' : 'down'}" style="font-size:14px;margin-left:10px">${sh.change >= 0 ? '+' : ''}${sh.changePct}%</span>`;
+            document.getElementById('cy-value').innerHTML = 
+                `${cy.price}<span class="${cy.change >= 0 ? 'up' : 'down'}" style="font-size:14px;margin-left:10px">${cy.change >= 0 ? '+' : ''}${cy.changePct}%</span>`;
+        }
+
+        async function renderStocks() {
+            const grid = document.getElementById('stockGrid');
+            
+            if (stocks.length === 0) {
+                grid.innerHTML = '<div class="loading">添加股票开始使用...</div>';
+                return;
+            }
+            
+            grid.innerHTML = '';
+            
+            for (const code of stocks) {
+                const data = await fetchStockData(code);
+                
+                if (!data) continue;
+                
+                const card = document.createElement('div');
+                card.className = 'stock-card';
+                card.innerHTML = `
+                    <button class="delete" onclick="removeStock('${code}')">×</button>
+                    <div class="stock-name">${data.name}</div>
+                    <div class="stock-code">${code}</div>
+                    <div class="stock-price">${data.price.toFixed(2)}</div>
+                    <div class="stock-change ${data.change >= 0 ? 'up' : 'down'}">
+                        ${data.change >= 0 ? '+' : ''}${data.change.toFixed(2)} (${data.changePct}%)
+                    </div>
+                    <div class="stock-info">
+                        <span>开盘: ${data.open.toFixed(2)}</span>
+                        <span>成交量: ${data.volume.toFixed(0)}万</span>
+                    </div>
+                `;
+                grid.appendChild(card);
+            }
+        }
+
+        function addStock() {
+            const input = document.getElementById('stockInput');
+            const code = input.value.trim();
+            
+            if (code && !stocks.includes(code)) {
+                stocks.push(code);
+                localStorage.setItem('myStocks', JSON.stringify(stocks));
+                renderStocks();
+                input.value = '';
+            }
+        }
+
+        function removeStock(code) {
+            stocks = stocks.filter(s => s !== code);
+            localStorage.setItem('myStocks', JSON.stringify(stocks));
+            renderStocks();
+        }
+
+        // 回车添加股票
+        document.getElementById('stockInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') addStock();
+        });
+
+        // 初始化
+        updateIndices();
+        renderStocks();
+        
+        // 每30秒刷新
+        setInterval(() => {
+            updateIndices();
+            renderStocks();
+        }, 30000);
+    </script>
+</body>
+</html>
