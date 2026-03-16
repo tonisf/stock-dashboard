@@ -160,7 +160,7 @@
     </div>
     
     <div class="add-stock">
-        <input type="text" id="stockInput" placeholder="输入股票代码或名称">
+        <input type="text" id="stockInput" placeholder="输入股票代码（如 600519）">
         <button onclick="addStock()">添加股票</button>
     </div>
     
@@ -170,67 +170,59 @@
 
     <script>
         // 默认股票列表
-        let stocks = JSON.parse(localStorage.getItem('myStocks')) || ['603138', '002273'];
-        
-        const stockCodeMap = {
-            '603138': { name: '海量数据', market: 'sh' },
-            '002273': { name: '水晶光电', market: 'sz' }
-        };
-
-        function getStockName(code) {
-            return stockCodeMap[code]?.name || code;
-        }
-
-        function getMarket(code) {
-            return stockCodeMap[code]?.market || (code.startsWith('6') ? 'sh' : 'sz');
-        }
+        let stocks = JSON.parse(localStorage.getItem('myStocks')) || ['600519', '000858'];
 
         async function fetchStockData(code) {
-            const market = getMarket(code);
+            // 判断市场：6开头是上海，0/3开头是深圳
+            const market = code.startsWith('6') ? 'sh' : 'sz';
             const symbol = market + code;
             
             try {
-                const response = await fetch(`https://hq.sinajs.cn/list=${symbol}`, {
-                    headers: {
-                        'Referer': 'https://finance.sina.com.cn'
-                    }
-                });
+                // 使用腾讯财经 API（UTF-8 编码）
+                const response = await fetch(`https://qt.gtimg.cn/q=${symbol}`);
                 const text = await response.text();
-                const data = text.split('=')[1].split(',');
                 
-                if (data.length < 10) return null;
+                // 解析返回数据
+                const match = text.match(/"([^"]+)"/);
+                if (!match) return null;
+                
+                const data = match[1].split('~');
+                
+                if (data.length < 50 || data[0] === '') return null;
                 
                 return {
                     code: code,
-                    name: data[0].replace(/"/g, ''),
-                    open: parseFloat(data[1]),
-                    price: parseFloat(data[2]),
-                    high: parseFloat(data[3]),
-                    low: parseFloat(data[4]),
-                    volume: parseFloat(data[5]) / 10000,
-                    amount: parseFloat(data[6]) / 100000000,
-                    change: parseFloat(data[2]) - parseFloat(data[1]),
-                    changePct: ((parseFloat(data[2]) - parseFloat(data[1])) / parseFloat(data[1]) * 100).toFixed(2)
+                    name: data[1],
+                    open: parseFloat(data[5]),
+                    price: parseFloat(data[3]),
+                    high: parseFloat(data[4]),
+                    low: parseFloat(data[6]),
+                    volume: parseFloat(data[7]) / 10000,
+                    amount: parseFloat(data[8]) / 100000000,
+                    change: parseFloat(data[3]) - parseFloat(data[5]),
+                    changePct: ((parseFloat(data[3]) - parseFloat(data[5])) / parseFloat(data[5]) * 100).toFixed(2)
                 };
             } catch (e) {
-                console.error(e);
+                console.error('获取股票数据失败:', e);
                 return null;
             }
         }
 
         async function fetchIndexData(symbol) {
             try {
-                const response = await fetch(`https://hq.sinajs.cn/list=${symbol}`, {
-                    headers: { 'Referer': 'https://finance.sina.com.cn' }
-                });
+                const response = await fetch(`https://qt.gtimg.cn/q=${symbol}`);
                 const text = await response.text();
-                const data = text.split('=')[1].split(',');
+                const match = text.match(/"([^"]+)"/);
+                
+                if (!match) return { name: '', price: '--', change: '--', changePct: '--' };
+                
+                const data = match[1].split('~');
                 
                 return {
-                    name: data[0].replace(/"/g, ''),
-                    price: parseFloat(data[1]).toFixed(2),
-                    change: parseFloat(data[2]).toFixed(2),
-                    changePct: parseFloat(data[3]).toFixed(2)
+                    name: data[1],
+                    price: parseFloat(data[3]).toFixed(2),
+                    change: parseFloat(data[4]).toFixed(2),
+                    changePct: parseFloat(data[5]).toFixed(2)
                 };
             } catch (e) {
                 return { name: '', price: '--', change: '--', changePct: '--' };
@@ -242,9 +234,9 @@
             const cy = await fetchIndexData('sz399006');
             
             document.getElementById('sh-value').innerHTML = 
-                `${sh.price}<span class="${sh.change >= 0 ? 'up' : 'down'}" style="font-size:14px;margin-left:10px">${sh.change >= 0 ? '+' : ''}${sh.changePct}%</span>`;
+                `${sh.price}<span class="${parseFloat(sh.change) >= 0 ? 'up' : 'down'}" style="font-size:14px;margin-left:10px">${parseFloat(sh.change) >= 0 ? '+' : ''}${sh.changePct}%</span>`;
             document.getElementById('cy-value').innerHTML = 
-                `${cy.price}<span class="${cy.change >= 0 ? 'up' : 'down'}" style="font-size:14px;margin-left:10px">${cy.change >= 0 ? '+' : ''}${cy.changePct}%</span>`;
+                `${cy.price}<span class="${parseFloat(cy.change) >= 0 ? 'up' : 'down'}" style="font-size:14px;margin-left:10px">${parseFloat(cy.change) >= 0 ? '+' : ''}${cy.changePct}%</span>`;
         }
 
         async function renderStocks() {
@@ -255,19 +247,28 @@
                 return;
             }
             
-            grid.innerHTML = '';
+            grid.innerHTML = '<div class="loading">加载中...</div>';
             
+            const stockDataList = [];
             for (const code of stocks) {
                 const data = await fetchStockData(code);
-                
-                if (!data) continue;
-                
+                if (data) stockDataList.push(data);
+            }
+            
+            if (stockDataList.length === 0) {
+                grid.innerHTML = '<div class="loading">股票数据获取失败，请检查代码是否正确</div>';
+                return;
+            }
+            
+            grid.innerHTML = '';
+            
+            for (const data of stockDataList) {
                 const card = document.createElement('div');
                 card.className = 'stock-card';
                 card.innerHTML = `
-                    <button class="delete" onclick="removeStock('${code}')">×</button>
+                    <button class="delete" onclick="removeStock('${data.code}')">×</button>
                     <div class="stock-name">${data.name}</div>
-                    <div class="stock-code">${code}</div>
+                    <div class="stock-code">${data.code}</div>
                     <div class="stock-price">${data.price.toFixed(2)}</div>
                     <div class="stock-change ${data.change >= 0 ? 'up' : 'down'}">
                         ${data.change >= 0 ? '+' : ''}${data.change.toFixed(2)} (${data.changePct}%)
@@ -285,11 +286,14 @@
             const input = document.getElementById('stockInput');
             const code = input.value.trim();
             
-            if (code && !stocks.includes(code)) {
+            // 简单验证：6位数字
+            if (code && /^\d{6}$/.test(code) && !stocks.includes(code)) {
                 stocks.push(code);
                 localStorage.setItem('myStocks', JSON.stringify(stocks));
                 renderStocks();
                 input.value = '';
+            } else if (code) {
+                alert('请输入6位股票代码');
             }
         }
 
